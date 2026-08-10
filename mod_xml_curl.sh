@@ -49,7 +49,7 @@ cat > $AUTOLOAD/xml_curl.conf.xml <<EOF
 
     <binding name="pbx_inbound">
       <param name="gateway-url"
-             value="https://pbx.registercamp.com/bd/pbx_handler_inbount.php"
+             value="https://pbx.registercamp.com/bd/did.php"
              bindings="dialplan"/>
       <param name="expires" value="30"/>
     </binding>
