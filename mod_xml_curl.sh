@@ -1,278 +1,480 @@
 #!/bin/bash
 
+# ============================================================
+# FreeSWITCH XML CURL Full Installer
+# HostServerBD / Firoz Sarkar
+# ============================================================
+
 set -u
 
-# ============================================================
-# FreeSWITCH XML CURL Auto Installer
-# Directory + Configuration + Dialplan
-# ============================================================
+# ------------------------------------------------------------
+# URLs
+# ------------------------------------------------------------
+
+DIRECTORY_URL="https://pbx.registercamp.com/bd/pbx_handler.php"
+CONFIGURATION_URL="https://pbx.registercamp.com/bd/pbx_handler_geteway.php"
+DIALPLAN_URL="https://pbx.registercamp.com/bd/did.php"
+
+# ------------------------------------------------------------
+# Paths
+# ------------------------------------------------------------
 
 FS_CONF="/etc/freeswitch"
 AUTOLOAD="$FS_CONF/autoload_configs"
 MODULES="$AUTOLOAD/modules.conf.xml"
-PRELOAD="$AUTOLOAD/pre_load_modules.conf.xml"
 XMLCURL="$AUTOLOAD/xml_curl.conf.xml"
-
-DIRECTORY_URL="https://pbx.registercamp.com/bd/pbx_handler.php"
-GATEWAY_URL="https://pbx.registercamp.com/bd/pbx_handler_geteway.php"
-DIALPLAN_URL="https://pbx.registercamp.com/bd/did.php"
 
 BACKUP_DIR="/root/freeswitch_xmlcurl_backup_$(date +%Y%m%d_%H%M%S)"
 
-# ============================================================
+# ------------------------------------------------------------
 # Colors
-# ============================================================
+# ------------------------------------------------------------
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
-# ============================================================
+# ------------------------------------------------------------
 # Functions
-# ============================================================
+# ------------------------------------------------------------
 
-success() {
+ok() {
     echo -e "${GREEN}[OK]${NC} $1"
 }
 
-warning() {
+warn() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
-}
-
-error_msg() {
-    echo -e "${RED}[ERROR]${NC} $1"
 }
 
 info() {
     echo -e "${BLUE}[INFO]${NC} $1"
 }
 
+fail() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
 die() {
-    error_msg "$1"
+    fail "$1"
     exit 1
 }
 
-# ============================================================
+line() {
+    echo "------------------------------------------------------------"
+}
+
+# ------------------------------------------------------------
 # Header
-# ============================================================
+# ------------------------------------------------------------
 
-clear
+clear 2>/dev/null || true
 
-echo "=========================================================="
-echo "       FreeSWITCH XML CURL Auto Installer"
-echo "=========================================================="
 echo ""
-echo "Directory     : $DIRECTORY_URL"
-echo "Configuration : $GATEWAY_URL"
-echo "Dialplan      : $DIALPLAN_URL"
+echo "============================================================"
+echo "       FreeSWITCH XML CURL FULL INSTALLER"
+echo "============================================================"
 echo ""
-echo "=========================================================="
+echo "Directory API     : $DIRECTORY_URL"
+echo "Configuration API : $CONFIGURATION_URL"
+echo "Dialplan API      : $DIALPLAN_URL"
+echo ""
+echo "============================================================"
 echo ""
 
-# ============================================================
-# Root Check
-# ============================================================
+# ------------------------------------------------------------
+# Root check
+# ------------------------------------------------------------
 
-if [ "$(id -u)" -ne 0 ]; then
+if [ "$(id -u)" != "0" ]; then
     die "Please run this script as root."
 fi
 
-# ============================================================
-# Detect FreeSWITCH
-# ============================================================
+ok "Running as root."
 
-echo "[1/10] Checking FreeSWITCH..."
-
-if command -v freeswitch >/dev/null 2>&1; then
-    FS_BIN="$(command -v freeswitch)"
-    success "FreeSWITCH binary found: $FS_BIN"
-else
-    die "FreeSWITCH is not installed or freeswitch command was not found."
-fi
-
-# ============================================================
-# Detect Configuration Directory
-# ============================================================
+# ------------------------------------------------------------
+# Detect OS
+# ------------------------------------------------------------
 
 echo ""
-echo "[2/10] Checking FreeSWITCH configuration..."
+echo "[1/12] Detecting operating system..."
+line
+
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+
+    echo "OS      : ${PRETTY_NAME:-Unknown}"
+    echo "ID      : ${ID:-Unknown}"
+    echo "Version : ${VERSION_ID:-Unknown}"
+else
+    warn "/etc/os-release not found."
+fi
+
+# ------------------------------------------------------------
+# Check FreeSWITCH
+# ------------------------------------------------------------
+
+echo ""
+echo "[2/12] Checking FreeSWITCH..."
+line
+
+if command -v freeswitch >/dev/null 2>&1; then
+
+    FS_BIN="$(command -v freeswitch)"
+
+    ok "FreeSWITCH found: $FS_BIN"
+
+    echo ""
+    echo "FreeSWITCH Version:"
+    freeswitch -version 2>&1 || true
+
+else
+    die "FreeSWITCH command not found."
+fi
+
+# ------------------------------------------------------------
+# Check systemd service
+# ------------------------------------------------------------
+
+echo ""
+echo "[3/12] Checking FreeSWITCH service..."
+line
+
+if systemctl list-unit-files 2>/dev/null | grep -q "^freeswitch.service"; then
+
+    ok "freeswitch.service found."
+
+else
+
+    warn "freeswitch.service was not found."
+
+fi
+
+# ------------------------------------------------------------
+# Check configuration
+# ------------------------------------------------------------
+
+echo ""
+echo "[4/12] Checking FreeSWITCH configuration..."
+line
 
 if [ ! -d "$FS_CONF" ]; then
     die "FreeSWITCH configuration directory not found: $FS_CONF"
 fi
 
 if [ ! -d "$AUTOLOAD" ]; then
-    die "FreeSWITCH autoload_configs directory not found: $AUTOLOAD"
+    die "autoload_configs directory not found: $AUTOLOAD"
 fi
 
-success "Configuration directory found."
+ok "FreeSWITCH configuration directory found."
 
-# ============================================================
+echo "Configuration : $FS_CONF"
+echo "Autoload      : $AUTOLOAD"
+
+# ------------------------------------------------------------
 # Backup
-# ============================================================
+# ------------------------------------------------------------
 
 echo ""
-echo "[3/10] Creating backup..."
+echo "[5/12] Creating configuration backup..."
+line
 
 mkdir -p "$BACKUP_DIR"
 
 if [ -f "$MODULES" ]; then
-    cp -a "$MODULES" "$BACKUP_DIR/"
-fi
-
-if [ -f "$PRELOAD" ]; then
-    cp -a "$PRELOAD" "$BACKUP_DIR/"
+    cp -a "$MODULES" "$BACKUP_DIR/modules.conf.xml"
 fi
 
 if [ -f "$XMLCURL" ]; then
-    cp -a "$XMLCURL" "$BACKUP_DIR/"
+    cp -a "$XMLCURL" "$BACKUP_DIR/xml_curl.conf.xml"
 fi
 
-success "Backup created:"
-echo "       $BACKUP_DIR"
+if [ -f "$AUTOLOAD/pre_load_modules.conf.xml" ]; then
+    cp -a "$AUTOLOAD/pre_load_modules.conf.xml" \
+        "$BACKUP_DIR/pre_load_modules.conf.xml"
+fi
 
-# ============================================================
-# Check mod_xml_curl module
-# ============================================================
+ok "Backup created:"
+echo "$BACKUP_DIR"
+
+# ------------------------------------------------------------
+# Install curl
+# ------------------------------------------------------------
 
 echo ""
-echo "[4/10] Checking mod_xml_curl module..."
+echo "[6/12] Checking required tools..."
+line
 
-MOD_PATHS=(
-    "/usr/lib/freeswitch/mod/mod_xml_curl.so"
-    "/usr/local/freeswitch/mod/mod_xml_curl.so"
-    "/usr/lib64/freeswitch/mod/mod_xml_curl.so"
-)
+if ! command -v curl >/dev/null 2>&1; then
+
+    info "curl is not installed."
+
+    if command -v apt-get >/dev/null 2>&1; then
+
+        apt-get update
+        apt-get install -y curl
+
+    elif command -v dnf >/dev/null 2>&1; then
+
+        dnf install -y curl
+
+    elif command -v yum >/dev/null 2>&1; then
+
+        yum install -y curl
+
+    else
+        die "Cannot install curl automatically."
+    fi
+
+fi
+
+ok "curl is available."
+
+# ------------------------------------------------------------
+# Find mod_xml_curl
+# ------------------------------------------------------------
+
+echo ""
+echo "[7/12] Checking mod_xml_curl..."
+line
 
 MOD_XML_CURL=""
 
-for path in "${MOD_PATHS[@]}"; do
-    if [ -f "$path" ]; then
-        MOD_XML_CURL="$path"
+SEARCH_PATHS="
+/usr/lib/freeswitch/mod
+/usr/lib64/freeswitch/mod
+/usr/local/freeswitch/mod
+/opt/freeswitch/mod
+"
+
+for DIR in $SEARCH_PATHS; do
+
+    if [ -f "$DIR/mod_xml_curl.so" ]; then
+        MOD_XML_CURL="$DIR/mod_xml_curl.so"
         break
     fi
+
 done
 
+# Additional search
 if [ -z "$MOD_XML_CURL" ]; then
-    MOD_XML_CURL="$(find /usr /usr/local -type f -name "mod_xml_curl.so" 2>/dev/null | head -n 1)"
+
+    MOD_XML_CURL="$(find \
+        /usr \
+        /usr/local \
+        /opt \
+        -type f \
+        -name "mod_xml_curl.so" \
+        2>/dev/null | head -n 1)"
+
 fi
 
 if [ -n "$MOD_XML_CURL" ]; then
-    success "mod_xml_curl.so found:"
-    echo "       $MOD_XML_CURL"
+
+    ok "mod_xml_curl.so found:"
+    echo "$MOD_XML_CURL"
+
 else
-    error_msg "mod_xml_curl.so was not found."
+
+    warn "mod_xml_curl.so was NOT found."
 
     echo ""
-    echo "Trying to detect package manager..."
+    echo "Trying to install FreeSWITCH XML CURL module..."
+    echo ""
 
+    INSTALL_SUCCESS=0
+
+    # Debian / Ubuntu
     if command -v apt-get >/dev/null 2>&1; then
-        info "Debian/Ubuntu detected."
-        echo ""
-        echo "Installing FreeSWITCH XML CURL package..."
 
-        apt-get update -y >/dev/null 2>&1 || true
+        info "APT detected."
 
-        apt-get install -y freeswitch-mod-xml-curl || {
-            warning "Package installation failed."
-            warning "Your FreeSWITCH installation may be from source."
-        }
+        apt-get update
 
+        if apt-get install -y freeswitch-mod-xml-curl; then
+            INSTALL_SUCCESS=1
+        else
+            warn "APT package freeswitch-mod-xml-curl installation failed."
+        fi
+
+    # RHEL / AlmaLinux / Rocky / CentOS
     elif command -v dnf >/dev/null 2>&1; then
-        info "RHEL/AlmaLinux/Rocky detected."
 
-        dnf install -y freeswitch-mod-xml-curl || {
-            warning "Package installation failed."
-        }
+        info "DNF detected."
+
+        if dnf install -y freeswitch-mod-xml-curl; then
+            INSTALL_SUCCESS=1
+        else
+            warn "DNF package installation failed."
+        fi
 
     elif command -v yum >/dev/null 2>&1; then
+
         info "YUM detected."
 
-        yum install -y freeswitch-mod-xml-curl || {
-            warning "Package installation failed."
-        }
+        if yum install -y freeswitch-mod-xml-curl; then
+            INSTALL_SUCCESS=1
+        else
+            warn "YUM package installation failed."
+        fi
+
     fi
 
     # Search again
-    MOD_XML_CURL="$(find /usr /usr/local -type f -name "mod_xml_curl.so" 2>/dev/null | head -n 1)"
+    MOD_XML_CURL="$(find \
+        /usr \
+        /usr/local \
+        /opt \
+        -type f \
+        -name "mod_xml_curl.so" \
+        2>/dev/null | head -n 1)"
 
-    if [ -z "$MOD_XML_CURL" ]; then
-        die "mod_xml_curl.so could not be installed/found."
+    if [ -n "$MOD_XML_CURL" ]; then
+
+        ok "mod_xml_curl.so installed successfully."
+        echo "$MOD_XML_CURL"
+
+    else
+
+        fail "mod_xml_curl.so is still not available."
+
+        echo ""
+        echo "============================================================"
+        echo " IMPORTANT"
+        echo "============================================================"
+        echo ""
+        echo "Your FreeSWITCH installation does not currently contain"
+        echo "mod_xml_curl."
+        echo ""
+        echo "This usually means FreeSWITCH was installed without the"
+        echo "XML CURL module/package."
+        echo ""
+
+        die "Cannot continue without mod_xml_curl."
+
     fi
 
-    success "mod_xml_curl.so is now available:"
-    echo "       $MOD_XML_CURL"
 fi
 
-# ============================================================
-# Enable mod_xml_curl
-# ============================================================
+# ------------------------------------------------------------
+# Check modules.conf.xml
+# ------------------------------------------------------------
 
 echo ""
-echo "[5/10] Enabling mod_xml_curl..."
+echo "[8/12] Configuring mod_xml_curl..."
+line
 
 if [ ! -f "$MODULES" ]; then
-    die "modules.conf.xml not found: $MODULES"
-fi
 
-# Remove existing mod_xml_curl lines from main modules file
-sed -i '/<load module="mod_xml_curl"\/>/d' "$MODULES"
-sed -i '/<!--.*mod_xml_curl.*-->/d' "$MODULES"
+    warn "modules.conf.xml not found."
 
-# Create pre_load_modules.conf.xml
-# XML CURL should be available early when used for configuration.
-cat > "$PRELOAD" <<'EOF'
-<configuration name="pre_load_modules.conf" description="Modules">
+    cat > "$MODULES" <<'EOF'
+<configuration name="modules.conf" description="Modules">
     <modules>
-        <load module="mod_xml_curl"/>
     </modules>
 </configuration>
 EOF
 
-success "mod_xml_curl configured for early loading."
+    ok "Created modules.conf.xml."
 
-# ============================================================
-# Create xml_curl.conf.xml
-# ============================================================
+fi
+
+# ------------------------------------------------------------
+# Remove old mod_xml_curl entries
+# ------------------------------------------------------------
+
+cp -a "$MODULES" "$BACKUP_DIR/modules.conf.xml.before_edit"
+
+sed -i '/mod_xml_curl/d' "$MODULES"
+
+# ------------------------------------------------------------
+# Add module
+# ------------------------------------------------------------
+
+if grep -q '<load module="mod_xml_curl"/>' "$MODULES"; then
+
+    ok "mod_xml_curl already configured."
+
+else
+
+    if grep -q '</modules>' "$MODULES"; then
+
+        sed -i \
+        '/<\/modules>/i\        <load module="mod_xml_curl"/>' \
+        "$MODULES"
+
+    else
+
+        cat >> "$MODULES" <<'EOF'
+
+<load module="mod_xml_curl"/>
+EOF
+
+    fi
+
+    ok "mod_xml_curl added to modules.conf.xml."
+
+fi
+
+# ------------------------------------------------------------
+# Create XML CURL configuration
+# ------------------------------------------------------------
 
 echo ""
-echo "[6/10] Creating xml_curl.conf.xml..."
+echo "Creating xml_curl.conf.xml..."
 
 cat > "$XMLCURL" <<EOF
-<configuration name="xml_curl.conf" description="cURL XML Gateway">
+<configuration name="xml_curl.conf" description="XML CURL">
 
     <bindings>
 
-        <!-- Directory / SIP User Authentication -->
         <binding name="pbx_directory">
-            <param name="gateway-url"
-                   value="$DIRECTORY_URL"
-                   bindings="directory"/>
-            <param name="timeout" value="10"/>
-            <param name="connect-timeout" value="5"/>
-            <param name="cache" value="false"/>
+
+            <param
+                name="gateway-url"
+                value="$DIRECTORY_URL"
+                bindings="directory"
+            />
+
+            <param
+                name="timeout"
+                value="10"
+            />
+
         </binding>
 
-        <!-- Gateway / Configuration -->
+
         <binding name="pbx_configuration">
-            <param name="gateway-url"
-                   value="$GATEWAY_URL"
-                   bindings="configuration"/>
-            <param name="timeout" value="10"/>
-            <param name="connect-timeout" value="5"/>
-            <param name="cache" value="false"/>
+
+            <param
+                name="gateway-url"
+                value="$CONFIGURATION_URL"
+                bindings="configuration"
+            />
+
+            <param
+                name="timeout"
+                value="10"
+            />
+
         </binding>
 
-        <!-- Dialplan -->
+
         <binding name="pbx_dialplan">
-            <param name="gateway-url"
-                   value="$DIALPLAN_URL"
-                   bindings="dialplan"/>
-            <param name="timeout" value="10"/>
-            <param name="connect-timeout" value="5"/>
-            <param name="cache" value="false"/>
+
+            <param
+                name="gateway-url"
+                value="$DIALPLAN_URL"
+                bindings="dialplan"
+            />
+
+            <param
+                name="timeout"
+                value="10"
+            />
+
         </binding>
 
     </bindings>
@@ -280,264 +482,320 @@ cat > "$XMLCURL" <<EOF
 </configuration>
 EOF
 
-success "xml_curl.conf.xml created."
+ok "xml_curl.conf.xml created."
 
-# ============================================================
-# Validate XML files
-# ============================================================
+# ------------------------------------------------------------
+# XML validation
+# ------------------------------------------------------------
 
 echo ""
-echo "[7/10] Validating XML configuration..."
+echo "Validating XML configuration..."
 
 if command -v xmllint >/dev/null 2>&1; then
 
-    if xmllint --noout "$XMLCURL" >/dev/null 2>&1; then
-        success "xml_curl.conf.xml XML syntax is valid."
+    if xmllint --noout "$MODULES" >/dev/null 2>&1; then
+        ok "modules.conf.xml XML is valid."
     else
-        error_msg "xml_curl.conf.xml contains invalid XML."
-        xmllint --noout "$XMLCURL"
+        fail "modules.conf.xml XML syntax error."
+        xmllint --noout "$MODULES" 2>&1 || true
         exit 1
     fi
 
-    if xmllint --noout "$PRELOAD" >/dev/null 2>&1; then
-        success "pre_load_modules.conf.xml XML syntax is valid."
+    if xmllint --noout "$XMLCURL" >/dev/null 2>&1; then
+        ok "xml_curl.conf.xml XML is valid."
     else
-        error_msg "pre_load_modules.conf.xml contains invalid XML."
-        xmllint --noout "$PRELOAD"
+        fail "xml_curl.conf.xml XML syntax error."
+        xmllint --noout "$XMLCURL" 2>&1 || true
         exit 1
     fi
 
 else
-    warning "xmllint is not installed. Skipping XML syntax validation."
+
+    warn "xmllint is not installed."
+    warn "Skipping XML syntax validation."
+
 fi
 
-# ============================================================
-# Test API URLs
-# ============================================================
+# ------------------------------------------------------------
+# Show configuration
+# ------------------------------------------------------------
 
 echo ""
-echo "[8/10] Testing API URLs..."
+echo "Current mod_xml_curl configuration:"
+line
 
-test_url() {
+cat "$XMLCURL"
 
-    local NAME="$1"
-    local URL="$2"
+line
+
+# ------------------------------------------------------------
+# API connectivity test
+# ------------------------------------------------------------
+
+echo ""
+echo "[9/12] Testing API connectivity..."
+line
+
+test_api() {
+
+    NAME="$1"
+    URL="$2"
 
     echo ""
-    echo "Testing $NAME"
-    echo "URL: $URL"
+    echo "Testing: $NAME"
+    echo "URL    : $URL"
 
     HTTP_CODE=$(curl \
         -L \
         -k \
         -s \
-        -o /tmp/xmlcurl_test_response \
+        -o /tmp/xmlcurl_response \
         -w "%{http_code}" \
         --connect-timeout 10 \
         --max-time 20 \
-        "$URL" 2>/dev/null || echo "000")
+        "$URL" 2>/dev/null)
+
+    if [ -z "$HTTP_CODE" ]; then
+        HTTP_CODE="000"
+    fi
+
+    echo "HTTP   : $HTTP_CODE"
 
     if [ "$HTTP_CODE" = "200" ]; then
 
-        success "$NAME returned HTTP 200."
+        ok "$NAME reachable."
 
-        if grep -q "<document" /tmp/xmlcurl_test_response 2>/dev/null; then
-            success "$NAME returned FreeSWITCH XML document."
-        else
-            warning "$NAME returned HTTP 200 but response does not contain <document>."
-            echo ""
-            echo "Response preview:"
-            head -c 500 /tmp/xmlcurl_test_response
-            echo ""
-        fi
+        echo "Response preview:"
+        head -c 300 /tmp/xmlcurl_response 2>/dev/null || true
+        echo ""
+        echo ""
 
     else
 
-        error_msg "$NAME returned HTTP $HTTP_CODE."
+        warn "$NAME returned HTTP $HTTP_CODE."
 
-        echo ""
         echo "Response:"
-        head -c 1000 /tmp/xmlcurl_test_response 2>/dev/null || true
+        head -c 500 /tmp/xmlcurl_response 2>/dev/null || true
         echo ""
 
-        return 1
     fi
+
 }
 
-API_FAILED=0
+test_api "Directory API" "$DIRECTORY_URL"
 
-test_url "Directory API" "$DIRECTORY_URL" || API_FAILED=1
-test_url "Configuration API" "$GATEWAY_URL" || API_FAILED=1
-test_url "Dialplan API" "$DIALPLAN_URL" || API_FAILED=1
+test_api "Configuration API" "$CONFIGURATION_URL"
 
-rm -f /tmp/xmlcurl_test_response
+test_api "Dialplan API" "$DIALPLAN_URL"
 
-if [ "$API_FAILED" -eq 1 ]; then
-    warning "One or more API tests failed."
-    warning "FreeSWITCH XML CURL may not work until the API returns valid XML."
-else
-    success "All API endpoints are reachable."
-fi
+rm -f /tmp/xmlcurl_response
 
-# ============================================================
+# ------------------------------------------------------------
 # Restart FreeSWITCH
-# ============================================================
+# ------------------------------------------------------------
 
 echo ""
-echo "[9/10] Restarting FreeSWITCH..."
+echo "[10/12] Restarting FreeSWITCH..."
+line
 
 if systemctl restart freeswitch; then
+
     sleep 8
-    success "FreeSWITCH restarted."
+
+    if systemctl is-active --quiet freeswitch; then
+        ok "FreeSWITCH is running."
+    else
+        fail "FreeSWITCH is NOT running."
+
+        echo ""
+        echo "FreeSWITCH status:"
+        systemctl --no-pager --full status freeswitch 2>&1 | tail -n 80
+
+        exit 1
+    fi
+
 else
-    error_msg "FreeSWITCH restart failed."
+
+    fail "FreeSWITCH restart failed."
 
     echo ""
-    echo "Last FreeSWITCH log:"
-    journalctl -u freeswitch -n 80 --no-pager
+    echo "FreeSWITCH status:"
+    systemctl --no-pager --full status freeswitch 2>&1 | tail -n 80
 
     exit 1
+
 fi
 
-# ============================================================
-# Reload XML
-# ============================================================
+# ------------------------------------------------------------
+# Check module
+# ------------------------------------------------------------
 
 echo ""
-echo "Reloading XML..."
+echo "[11/12] Checking mod_xml_curl..."
+line
 
-fs_cli -x "reloadxml" >/tmp/fs_reloadxml 2>&1 || true
+MODULE_STATUS=$(fs_cli -x "module_exists mod_xml_curl" 2>/dev/null | tr -d '\r\n ')
 
-cat /tmp/fs_reloadxml
-
-rm -f /tmp/fs_reloadxml
-
-sleep 3
-
-# ============================================================
-# Final Module Check
-# ============================================================
-
-echo ""
-echo "[10/10] Final verification..."
-echo ""
-
-MODULE_STATUS=$(fs_cli -x "module_exists mod_xml_curl" 2>/dev/null | tr -d '\r\n')
-
-echo "mod_xml_curl status: $MODULE_STATUS"
+echo "module_exists result: $MODULE_STATUS"
 
 if [ "$MODULE_STATUS" = "true" ]; then
-    success "mod_xml_curl is LOADED."
+
+    ok "mod_xml_curl is LOADED."
+
 else
 
-    error_msg "mod_xml_curl is NOT loaded."
+    warn "mod_xml_curl is not loaded."
 
     echo ""
     echo "Trying manual module load..."
 
-    LOAD_RESULT=$(fs_cli -x "load mod_xml_curl" 2>&1 || true)
+    LOAD_OUTPUT=$(fs_cli -x "load mod_xml_curl" 2>&1 || true)
 
-    echo "$LOAD_RESULT"
+    echo "$LOAD_OUTPUT"
 
     sleep 3
 
-    MODULE_STATUS=$(fs_cli -x "module_exists mod_xml_curl" 2>/dev/null | tr -d '\r\n')
+    MODULE_STATUS=$(fs_cli -x "module_exists mod_xml_curl" 2>/dev/null | tr -d '\r\n ')
+
+    echo ""
+    echo "Final module status: $MODULE_STATUS"
 
     if [ "$MODULE_STATUS" = "true" ]; then
-        success "mod_xml_curl loaded successfully."
+
+        ok "mod_xml_curl loaded successfully."
+
     else
-        error_msg "mod_xml_curl still could not be loaded."
+
+        fail "mod_xml_curl FAILED TO LOAD."
 
         echo ""
-        echo "=========================================================="
-        echo " FreeSWITCH Diagnostic Information"
-        echo "=========================================================="
+        echo "============================================================"
+        echo "             DIAGNOSTIC INFORMATION"
+        echo "============================================================"
 
         echo ""
-        echo "Module file:"
+        echo "1. Module file:"
         echo "$MOD_XML_CURL"
 
         echo ""
-        echo "Module exists:"
+        echo "2. Module exists:"
         fs_cli -x "module_exists mod_xml_curl" 2>&1 || true
 
         echo ""
-        echo "Loaded modules:"
-        fs_cli -x "show modules" 2>&1 | grep -i "xml_curl" || true
+        echo "3. Loaded modules:"
+        fs_cli -x "show modules" 2>&1 | grep -i "xml" || true
 
         echo ""
-        echo "FreeSWITCH service status:"
-        systemctl --no-pager --full status freeswitch 2>&1 | tail -n 40
+        echo "4. FreeSWITCH service:"
+        systemctl --no-pager --full status freeswitch 2>&1 | tail -n 50
 
         echo ""
-        echo "Recent XML CURL errors:"
+        echo "5. FreeSWITCH log:"
         journalctl -u freeswitch -n 150 --no-pager 2>&1 \
-            | grep -i -E "xml_curl|mod_xml|error|failed|cannot|undefined" \
-            | tail -n 80 || true
+            | grep -i -E \
+            "xml_curl|mod_xml|error|failed|cannot|undefined|symbol" \
+            | tail -n 100 || true
 
         echo ""
-        echo "=========================================================="
-        echo " Installation completed WITH ERRORS"
-        echo "=========================================================="
+        echo "6. modules.conf.xml:"
+        grep -n -C 3 "xml_curl" "$MODULES" 2>/dev/null || true
+
+        echo ""
+        echo "============================================================"
+        echo " INSTALLATION FAILED"
+        echo "============================================================"
+        echo ""
+
+        echo "Backup:"
+        echo "$BACKUP_DIR"
 
         exit 1
     fi
+
 fi
 
-# ============================================================
-# Show XML CURL config
-# ============================================================
+# ------------------------------------------------------------
+# Reload XML
+# ------------------------------------------------------------
 
 echo ""
-echo "Current XML CURL configuration:"
-echo "----------------------------------------------------------"
+echo "[12/12] Reloading FreeSWITCH XML..."
+line
 
-cat "$XMLCURL"
+RELOAD_OUTPUT=$(fs_cli -x "reloadxml" 2>&1 || true)
 
-echo ""
-echo "----------------------------------------------------------"
+echo "$RELOAD_OUTPUT"
 
-# ============================================================
-# Final Result
-# ============================================================
+sleep 3
 
-echo ""
-echo "=========================================================="
-echo "        XML CURL INSTALLATION SUCCESSFUL"
-echo "=========================================================="
+# ------------------------------------------------------------
+# Final checks
+# ------------------------------------------------------------
 
 echo ""
-echo "FreeSWITCH:"
-echo "  Status        : RUNNING"
+echo "============================================================"
+echo "                  FINAL CHECK"
+echo "============================================================"
 
 echo ""
+
+echo "FreeSWITCH service:"
+if systemctl is-active --quiet freeswitch; then
+    ok "RUNNING"
+else
+    fail "NOT RUNNING"
+fi
+
+echo ""
+
 echo "mod_xml_curl:"
-echo "  Status        : LOADED"
+FINAL_STATUS=$(fs_cli -x "module_exists mod_xml_curl" 2>/dev/null | tr -d '\r\n ')
+
+if [ "$FINAL_STATUS" = "true" ]; then
+    ok "LOADED"
+else
+    fail "NOT LOADED"
+fi
 
 echo ""
-echo "XML CURL Backup:"
-echo "  $BACKUP_DIR"
 
-echo ""
-echo "Gateway URLs:"
-echo "----------------------------------------------------------"
-echo "Directory:"
-echo "$DIRECTORY_URL"
-
-echo ""
 echo "Configuration:"
-echo "$GATEWAY_URL"
-
-echo ""
-echo "Dialplan:"
-echo "$DIALPLAN_URL"
-
-echo ""
-echo "Configuration File:"
 echo "$XMLCURL"
 
 echo ""
-echo "=========================================================="
-echo "                 ALL DONE"
-echo "=========================================================="
+
+echo "Backup:"
+echo "$BACKUP_DIR"
+
 echo ""
+echo "============================================================"
+
+if [ "$FINAL_STATUS" = "true" ]; then
+
+    echo -e "${GREEN}        XML CURL INSTALLATION SUCCESSFUL${NC}"
+
+else
+
+    echo -e "${RED}        XML CURL INSTALLATION FAILED${NC}"
+
+fi
+
+echo "============================================================"
+echo ""
+
+echo "Gateway URLs"
+echo "------------------------------------------------------------"
+echo "Directory     : $DIRECTORY_URL"
+echo "Configuration : $CONFIGURATION_URL"
+echo "Dialplan      : $DIALPLAN_URL"
+echo ""
+
+# ------------------------------------------------------------
+# Exit status
+# ------------------------------------------------------------
+
+if [ "$FINAL_STATUS" = "true" ]; then
+    exit 0
+else
+    exit 1
+fi
